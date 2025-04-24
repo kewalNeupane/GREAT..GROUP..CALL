@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Great Group Call</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background: #f0f0f0;
+    }
+    #videos {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+    video {
+      width: 300px;
+      height: 200px;
+      background: black;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>GREAT GROUP VIDEO CALL</h2>
+  <p>Anyone who opens this link joins the video call.</p>
+  <div id="videos">
+    <video id="myVideo" autoplay muted playsinline></video>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/simple-peer@9/simplepeer.min.js"></script>
+  <script>
+    const socket = io("https://group-call-signaling.glitch.me");
+    const videoGrid = document.getElementById("videos");
+    const myVideo = document.getElementById("myVideo");
+    const peers = {};
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
+      myVideo.srcObject = stream;
+
+      socket.emit("join-room", "great-call-room");
+
+      socket.on("all-users", users => {
+        users.forEach(userId => {
+          const peer = createPeer(userId, socket.id, stream);
+          peers[userId] = peer;
+        });
+      });
+
+      socket.on("user-joined", payload => {
+        const peer = addPeer(payload.signal, payload.callerId, stream);
+        peers[payload.callerId] = peer;
+      });
+
+      socket.on("receiving-returned-signal", payload => {
+        const peer = peers[payload.id];
+        peer.signal(payload.signal);
+      });
+
+      socket.on("user-disconnected", id => {
+        if (peers[id]) {
+          peers[id].destroy();
+          const video = document.getElementById(id);
+          if (video) video.remove();
+        }
+      });
+
+      function createPeer(userToSignal, callerId, stream) {
+        const peer = new SimplePeer({ initiator: true, trickle: false, stream });
+        peer.on("signal", signal => {
+          socket.emit("sending-signal", { userToSignal, callerId, signal });
+        });
+        peer.on("stream", remoteStream => {
+          addVideo(remoteStream, userToSignal);
+        });
+        return peer;
+      }
+
+      function addPeer(incomingSignal, id, stream) {
+        const peer = new SimplePeer({ initiator: false, trickle: false, stream });
+        peer.on("signal", signal => {
+          socket.emit("returning-signal", { signal, callerId: id });
+        });
+        peer.signal(incomingSignal);
+        peer.on("stream", remoteStream => {
+          addVideo(remoteStream, id);
+        });
+        return peer;
+      }
+
+      function addVideo(stream, id) {
+        const video = document.createElement("video");
+        video.srcObject = stream;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.id = id;
+        videoGrid.appendChild(video);
+      }
+    }).catch(err => {
+      alert("Please allow camera and mic access to join the call.");
+    });
+  </script>
+</body>
+</html>
